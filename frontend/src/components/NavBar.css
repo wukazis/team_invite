@@ -1,0 +1,68 @@
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  position: sticky;
+  top: 0;
+  background: #ffffff;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  z-index: 10;
+}
+
+.nav__brand {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.nav__links {
+  display: flex;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.nav__links a {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 0.95rem;
+  padding: 0.2rem 0.1rem;
+  opacity: 0.9;
+}
+
+.nav__links a.active {
+  text-decoration: none;
+  border-bottom: 2px solid var(--primary);
+  padding-bottom: 0.15rem;
+  opacity: 1;
+}
+
+.nav__links a:hover {
+  text-decoration: none;
+  opacity: 1;
+}
+
+.nav__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.nav button,
+.nav a.primary {
+  border-radius: 10px;
+  padding: 0.35rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.nav button.secondary {
+  background: #f1f5f9;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.nav a.primary {
+  background: var(--primary);
+  color: #fff;
+  border: none;
+}
