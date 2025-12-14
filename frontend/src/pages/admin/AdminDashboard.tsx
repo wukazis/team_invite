@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { Api, ApiError } from '../../lib/api'
+import { Api, ApiError, type TeamAccountStatus } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 import './AdminDashboard.css'
 
@@ -90,15 +90,68 @@ export function AdminDashboardPage() {
   const [userOffset, setUserOffset] = useState(0)
   const [inviteOffset, setInviteOffset] = useState(0)
   const [activeSection, setActiveSection] = useState('env')
+  // Team Accounts
+  const [teamAccounts, setTeamAccounts] = useState<TeamAccountStatus[]>([])
+  const [teamAccountMessage, setTeamAccountMessage] = useState<string | null>(null)
+  const [editingAccount, setEditingAccount] = useState<Partial<TeamAccountStatus> | null>(null)
 
   useEffect(() => {
-    Promise.all([loadEnv(), loadStats(), loadPrizeConfig(), loadUsers(0), loadSpins(), loadInviteCodes()]).finally(() => setEnvLoading(false))
+    Promise.all([loadEnv(), loadStats(), loadPrizeConfig(), loadUsers(0), loadSpins(), loadInviteCodes(), loadTeamAccounts()]).finally(() => setEnvLoading(false))
   }, [])
+
+  const loadTeamAccounts = async () => {
+    try {
+      const res = await Api.adminListTeamAccounts()
+      setTeamAccounts(res.accounts || [])
+    } catch {
+      setTeamAccountMessage('加载车账号失败')
+    }
+  }
+
+  const handleSaveTeamAccount = async (evt: FormEvent) => {
+    evt.preventDefault()
+    if (!editingAccount) return
+    try {
+      if (editingAccount.id) {
+        await Api.adminUpdateTeamAccount(editingAccount.id, {
+          name: editingAccount.name || '',
+          accountId: editingAccount.accountId || '',
+          authToken: editingAccount.authToken || '',
+          maxSeats: editingAccount.maxSeats || 50,
+          enabled: editingAccount.enabled ?? true,
+        })
+        setTeamAccountMessage('更新成功')
+      } else {
+        await Api.adminCreateTeamAccount({
+          name: editingAccount.name || '',
+          accountId: editingAccount.accountId || '',
+          authToken: editingAccount.authToken || '',
+          maxSeats: editingAccount.maxSeats || 50,
+        })
+        setTeamAccountMessage('创建成功')
+      }
+      setEditingAccount(null)
+      loadTeamAccounts()
+    } catch (err) {
+      setTeamAccountMessage(err instanceof ApiError ? err.message : '操作失败')
+    }
+  }
+
+  const handleDeleteTeamAccount = async (acc: TeamAccountStatus) => {
+    if (!window.confirm(`确定删除车账号 "${acc.name}" 吗？`)) return
+    try {
+      await Api.adminDeleteTeamAccount(acc.id)
+      setTeamAccountMessage('删除成功')
+      loadTeamAccounts()
+    } catch (err) {
+      setTeamAccountMessage(err instanceof ApiError ? err.message : '删除失败')
+    }
+  }
 
   const loadEnv = async () => {
     try {
       const res = await Api.adminFetchEnv()
-      setEnvValues(res.env)
+      setEnvValues(res.env || {})
     } catch (err) {
       setEnvMessage(err instanceof ApiError ? err.message : '加载配置失败')
     }
@@ -107,8 +160,8 @@ export function AdminDashboardPage() {
   const loadStats = async () => {
     try {
       const res = await Api.adminStats()
-      setOverview(res.overview)
-      setStats(res.stats)
+      setOverview(res.overview || null)
+      setStats(res.stats || [])
     } catch (err) {
       setStatMessage(err instanceof ApiError ? err.message : '统计获取失败')
     }
@@ -180,8 +233,8 @@ export function AdminDashboardPage() {
   const loadUsers = async (offset = userOffset) => {
     try {
       const res = await Api.adminFetchUsers(USER_PAGE_SIZE, offset)
-      setUsers(res.users)
-      setUserTotal(res.total)
+      setUsers(res.users || [])
+      setUserTotal(res.total || 0)
       setUserOffset(offset)
     } catch (err) {
       setUserMessage(err instanceof ApiError ? err.message : '加载用户失败')
@@ -191,8 +244,8 @@ export function AdminDashboardPage() {
   const loadSpins = async () => {
     try {
       const res = await Api.adminFetchSpins()
-      setSpins(res.records)
-      setSpinTotal(res.total)
+      setSpins(res.records || [])
+      setSpinTotal(res.total || 0)
     } catch {
       /* ignore */
     }
@@ -201,8 +254,8 @@ export function AdminDashboardPage() {
   const loadInviteCodes = async (offset = inviteOffset) => {
     try {
       const res = await Api.adminFetchInviteCodes(20, offset)
-      setInviteCodes(res.codes)
-      setInviteTotal(res.total)
+      setInviteCodes(res.codes || [])
+      setInviteTotal(res.total || 0)
       setInviteOffset(offset)
       setInviteMessage(null)
     } catch {
@@ -620,7 +673,85 @@ export function AdminDashboardPage() {
     </section>
   )
 
+  const teamAccountsSection = (
+    <section className="card admin-card">
+      <h2>🚗 车账号管理</h2>
+      <p className="info">
+        共 {teamAccounts.length} 个账号
+        <button className="btn btn-muted small" type="button" onClick={loadTeamAccounts}>刷新</button>
+        <button className="btn btn-primary small" type="button" onClick={() => setEditingAccount({ enabled: true, maxSeats: 50 })}>添加账号</button>
+      </p>
+      {teamAccountMessage && <p className="info">{teamAccountMessage}</p>}
+      <div className="admin-table team-accounts">
+        <div className="admin-table__head">
+          <span>名称</span>
+          <span>已用/总席位</span>
+          <span>待处理</span>
+          <span>到期时间</span>
+          <span>状态</span>
+          <span>操作</span>
+        </div>
+        {teamAccounts.map((acc) => (
+          <div className="admin-table__row" key={acc.id}>
+            <span>{acc.name}</span>
+            <span>{acc.seatsInUse}/{acc.seatsEntitled}</span>
+            <span>{acc.pendingInvites}</span>
+            <span>{acc.activeUntil ? new Date(acc.activeUntil).toLocaleDateString() : '-'}</span>
+            <span>{acc.enabled ? '启用' : '禁用'}</span>
+            <span>
+              <button className="btn btn-muted small" type="button" onClick={() => setEditingAccount(acc)}>编辑</button>
+              <button className="btn btn-muted small" type="button" onClick={() => handleDeleteTeamAccount(acc)}>删除</button>
+            </span>
+          </div>
+        ))}
+      </div>
+      {editingAccount && (
+        <div className="invite-editor">
+          <h3>{editingAccount.id ? '编辑车账号' : '添加车账号'}</h3>
+          <form onSubmit={handleSaveTeamAccount}>
+            <div className="form-row">
+              <label>
+                <span>名称</span>
+                <input type="text" value={editingAccount.name || ''} onChange={(e) => setEditingAccount(prev => prev ? {...prev, name: e.target.value} : prev)} required />
+              </label>
+              <label>
+                <span>Account ID</span>
+                <input type="text" value={editingAccount.accountId || ''} onChange={(e) => setEditingAccount(prev => prev ? {...prev, accountId: e.target.value} : prev)} required />
+              </label>
+            </div>
+            <div className="form-row">
+              <label>
+                <span>Auth Token</span>
+                <input type="text" value={editingAccount.authToken || ''} onChange={(e) => setEditingAccount(prev => prev ? {...prev, authToken: e.target.value} : prev)} required />
+              </label>
+              <label>
+                <span>最大席位</span>
+                <input type="number" value={editingAccount.maxSeats || 50} onChange={(e) => setEditingAccount(prev => prev ? {...prev, maxSeats: Number(e.target.value)} : prev)} />
+              </label>
+            </div>
+            {editingAccount.id && (
+              <div className="form-row">
+                <label>
+                  <span>启用</span>
+                  <select value={editingAccount.enabled ? 'yes' : 'no'} onChange={(e) => setEditingAccount(prev => prev ? {...prev, enabled: e.target.value === 'yes'} : prev)}>
+                    <option value="yes">启用</option>
+                    <option value="no">禁用</option>
+                  </select>
+                </label>
+              </div>
+            )}
+            <div className="env-actions">
+              <button className="btn btn-muted small" type="button" onClick={() => setEditingAccount(null)}>取消</button>
+              <button className="btn btn-primary small" type="submit">保存</button>
+            </div>
+          </form>
+        </div>
+      )}
+    </section>
+  )
+
   const sections = [
+    { id: 'team-accounts', label: '🚗 车账号', content: teamAccountsSection },
     { id: 'env', label: '环境变量', content: envSection },
     { id: 'users', label: '用户管理', content: userSection },
     { id: 'spins', label: '抽奖记录', content: spinsSection },

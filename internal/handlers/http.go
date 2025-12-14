@@ -90,6 +90,7 @@ func RegisterRoutes(r *gin.Engine, h *Handler, jwt *auth.Manager, adminIPs []str
 	api.POST("/spins", h.Spin)
 	api.POST("/invite", h.InviteSubmit)
 	api.GET("/invite", h.InviteInfo)
+	api.GET("/team-accounts/status", h.PublicTeamAccountsStatus)
 
 	admin := r.Group("/api/admin")
 	admin.Use(middleware.AdminIPWhitelist(adminIPs))
@@ -113,6 +114,10 @@ func RegisterRoutes(r *gin.Engine, h *Handler, jwt *auth.Manager, adminIPs []str
 	adminProtected.GET("/stats/hourly", h.HourlyStats)
 	adminProtected.GET("/prize-config", h.GetPrizeConfig)
 	adminProtected.PUT("/prize-config", h.UpdatePrizeConfig)
+	adminProtected.GET("/team-accounts", h.AdminListTeamAccounts)
+	adminProtected.POST("/team-accounts", h.AdminCreateTeamAccount)
+	adminProtected.PUT("/team-accounts/:id", h.AdminUpdateTeamAccount)
+	adminProtected.DELETE("/team-accounts/:id", h.AdminDeleteTeamAccount)
 }
 
 func (h *Handler) Health(c *gin.Context) {

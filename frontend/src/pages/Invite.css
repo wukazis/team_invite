@@ -1,6 +1,152 @@
 .invite-page {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+/* 车位状态卡片 - 仪表盘样式 */
+.team-accounts-card {
+  width: min(900px, 95%);
+}
+
+.team-accounts-card h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.2rem;
+}
+
+.team-accounts-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dashboard-row {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1rem 1.25rem;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dashboard-row:hover:not(.full) {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.dashboard-row.selected {
+  border-color: var(--primary);
+  background: #f0f7ff;
+}
+
+.dashboard-row.full {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dashboard-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  min-width: 120px;
+  flex-shrink: 0;
+}
+
+.dashboard-gauges {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.gauge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.gauge svg {
+  width: 50px;
+  height: 50px;
+  transform: rotate(-90deg);
+}
+
+.gauge-bg {
+  fill: none;
+  stroke: #e5e7eb;
+  stroke-width: 3;
+}
+
+.gauge-fill {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.3s;
+}
+
+.gauge-fill.used {
+  stroke: #f59e0b;
+}
+
+.gauge-fill.pending {
+  stroke: #8b5cf6;
+}
+
+.gauge-fill.total {
+  stroke: #3b82f6;
+}
+
+.gauge-fill.available {
+  stroke: #10b981;
+}
+
+.gauge-fill.empty {
+  stroke: #ef4444;
+}
+
+.gauge-text {
+  fill: var(--text);
+  font-size: 10px;
+  font-weight: 600;
+  text-anchor: middle;
+  transform: rotate(90deg);
+  transform-origin: center;
+}
+
+.gauge-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.dashboard-expire {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  margin-left: 0.5rem;
+  padding-left: 1rem;
+  border-left: 1px solid var(--border);
+}
+
+.expire-label {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.expire-date {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.selected-account {
+  font-size: 0.9rem;
+  color: var(--muted);
+  margin: 0;
 }
 
 .invite-card {

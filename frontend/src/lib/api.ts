@@ -187,4 +187,41 @@ export const Api = {
       body: JSON.stringify(payload),
     }, 'admin')
   },
+  // Team Accounts
+  getTeamAccountsStatus() {
+    return apiRequest<{ accounts: TeamAccountStatus[] }>('/api/team-accounts/status')
+  },
+  adminListTeamAccounts() {
+    return apiRequest<{ accounts: TeamAccountStatus[] }>('/api/admin/team-accounts', undefined, 'admin')
+  },
+  adminCreateTeamAccount(payload: { name: string; accountId: string; authToken: string; maxSeats?: number }) {
+    return apiRequest<{ account: TeamAccountStatus }>('/api/admin/team-accounts', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }, 'admin')
+  },
+  adminUpdateTeamAccount(id: number, payload: { name: string; accountId: string; authToken: string; maxSeats?: number; enabled?: boolean }) {
+    return apiRequest<{ status: string }>(`/api/admin/team-accounts/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }, 'admin')
+  },
+  adminDeleteTeamAccount(id: number) {
+    return apiRequest<{ status: string }>(`/api/admin/team-accounts/${id}`, { method: 'DELETE' }, 'admin')
+  },
+}
+
+export type TeamAccountStatus = {
+  id: number
+  name: string
+  accountId?: string
+  authToken?: string
+  maxSeats: number
+  enabled: boolean
+  createdAt: string
+  seatsInUse: number
+  seatsEntitled: number
+  pendingInvites: number
+  planType: string
+  activeUntil: string
 }
