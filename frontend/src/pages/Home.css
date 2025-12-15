@@ -24,67 +24,6 @@
   font-size: 0.95rem;
 }
 
-.hero__meta .countdown {
-  margin: 0.35rem 0 0;
-  color: var(--success);
-  font-size: 1.05rem;
-  font-weight: 700;
-}
-
-.hero__status {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.quota-pill {
-  background: #f8fafc;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.9rem 1.1rem;
-  min-width: 180px;
-}
-
-.quota-pill span {
-  font-size: 0.85rem;
-  color: var(--muted);
-}
-
-.quota-pill strong {
-  display: block;
-  font-size: 1.6rem;
-  margin-top: 0.25rem;
-}
-
-.quota-pill.secondary {
-  background: #fff;
-}
-
-.user-panel .user-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.user-card__profile {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-
-.user-card__profile img {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid var(--border);
-}
-
-.user-card .username {
-  font-weight: 600;
-}
-
 .spin-panel {
   text-align: center;
   display: flex;
@@ -96,31 +35,6 @@
   font-size: 0.95rem;
   color: var(--muted);
   margin: 0.1rem 0 0;
-}
-
-.spin-panel .error {
-  color: var(--danger);
-  font-size: 0.9rem;
-  margin: 0.1rem 0 0;
-}
-
-.spin-button {
-  font-size: 1rem;
-  padding: 0.8rem 1.2rem;
-}
-
-.result-card {
-  display: flex;
-  justify-content: center;
-}
-
-.result {
-  text-align: center;
-}
-
-.result h2 {
-  margin: 0.2rem 0;
-  font-size: 1.1rem;
 }
 
 .invite-code {

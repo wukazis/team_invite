@@ -3,46 +3,13 @@ import { Api, ApiError, type TeamAccountStatus } from '../../lib/api'
 import { useAuth } from '../../context/AuthContext'
 import './AdminDashboard.css'
 
-type Overview = {
-  total: number
-  win: number
-  retry: number
-  lose: number
-  unknown: number
-}
-
-type HourlyRow = {
-  hourLabel: string
-  win: number
-  retry: number
-  lose: number
-}
-
-type PrizeItem = {
-  type: string
-  name: string
-  probability: number
-}
-
 type UserRow = {
   id: number
   username: string
   trustLevel: number
-  chances: number
   inviteStatus: number
   createdAt: string
   updatedAt: string
-}
-
-type SpinRow = {
-  id: number
-  userId: number
-  username: string
-  prize: string
-  status: string
-  detail?: string
-  spinId: string
-  createdAt: string
 }
 
 const ENV_DISPLAY_ORDER: Array<{ key: string; fullWidth?: boolean }> = [
@@ -63,20 +30,9 @@ export function AdminDashboardPage() {
   const [envValues, setEnvValues] = useState<Record<string, string>>({})
   const [envLoading, setEnvLoading] = useState(true)
   const [envMessage, setEnvMessage] = useState<string | null>(null)
-  const [quotaInput, setQuotaInput] = useState('')
-  const [scheduleMinutes, setScheduleMinutes] = useState(30)
-  const [scheduleTarget, setScheduleTarget] = useState('')
-  const [stats, setStats] = useState<HourlyRow[]>([])
-  const [overview, setOverview] = useState<Overview | null>(null)
-  const [statMessage, setStatMessage] = useState<string | null>(null)
-  const [prizeConfig, setPrizeConfig] = useState<string>('[]')
-  const [prizeMessage, setPrizeMessage] = useState<string | null>(null)
-  const [resetMessage, setResetMessage] = useState<string | null>(null)
   const [users, setUsers] = useState<UserRow[]>([])
   const [userTotal, setUserTotal] = useState(0)
   const [userMessage, setUserMessage] = useState<string | null>(null)
-  const [spins, setSpins] = useState<SpinRow[]>([])
-  const [spinTotal, setSpinTotal] = useState(0)
   const [inviteCodes, setInviteCodes] = useState<InviteCodeRow[]>([])
   const [inviteTotal, setInviteTotal] = useState(0)
   const [inviteMessage, setInviteMessage] = useState<string | null>(null)
@@ -86,14 +42,14 @@ export function AdminDashboardPage() {
   const [generateInviteAccountId, setGenerateInviteAccountId] = useState<number | null>(null)
   const [userOffset, setUserOffset] = useState(0)
   const [inviteOffset, setInviteOffset] = useState(0)
-  const [activeSection, setActiveSection] = useState('env')
+  const [activeSection, setActiveSection] = useState('team-accounts')
   // Team Accounts
   const [teamAccounts, setTeamAccounts] = useState<TeamAccountStatus[]>([])
   const [teamAccountMessage, setTeamAccountMessage] = useState<string | null>(null)
   const [editingAccount, setEditingAccount] = useState<Partial<TeamAccountStatus> | null>(null)
 
   useEffect(() => {
-    Promise.all([loadEnv(), loadStats(), loadPrizeConfig(), loadUsers(0), loadSpins(), loadInviteCodes(), loadTeamAccounts()]).finally(() => setEnvLoading(false))
+    Promise.all([loadEnv(), loadUsers(0), loadInviteCodes(), loadTeamAccounts()]).finally(() => setEnvLoading(false))
   }, [])
 
   useEffect(() => {
@@ -104,6 +60,7 @@ export function AdminDashboardPage() {
     const preferred = teamAccounts.find((acc) => acc.enabled) ?? teamAccounts[0]
     setSelectedInviteAccountId(preferred ? preferred.id : null)
   }, [editingInvite, teamAccounts])
+
 
   const loadTeamAccounts = async () => {
     try {
@@ -168,25 +125,6 @@ export function AdminDashboardPage() {
     }
   }
 
-  const loadStats = async () => {
-    try {
-      const res = await Api.adminStats()
-      setOverview(res.overview || null)
-      setStats(res.stats || [])
-    } catch (err) {
-      setStatMessage(err instanceof ApiError ? err.message : '统计获取失败')
-    }
-  }
-
-  const loadPrizeConfig = async () => {
-    try {
-      const res = await Api.adminGetPrizeConfig()
-      setPrizeConfig(JSON.stringify(res.items, null, 2))
-    } catch {
-      setPrizeConfig('[]')
-    }
-  }
-
   const handleEnvSave = async (evt: FormEvent) => {
     evt.preventDefault()
     try {
@@ -194,50 +132,6 @@ export function AdminDashboardPage() {
       setEnvMessage('保存成功')
     } catch (err) {
       setEnvMessage(err instanceof ApiError ? err.message : '保存失败')
-    }
-  }
-
-  const handleQuotaUpdate = async (evt: FormEvent) => {
-    evt.preventDefault()
-    try {
-      const value = Number(quotaInput)
-      await Api.adminUpdateQuota(value)
-      setStatMessage(`已更新名额为 ${value}`)
-      setQuotaInput('')
-      loadStats()
-    } catch (err) {
-      setStatMessage(err instanceof ApiError ? err.message : '更新失败')
-    }
-  }
-
-  const handleSchedule = async (evt: FormEvent) => {
-    evt.preventDefault()
-    try {
-      await Api.adminScheduleQuota({ target: Number(scheduleTarget), delayMinutes: scheduleMinutes })
-      setStatMessage('已设置定时名额')
-      setScheduleTarget('')
-    } catch (err) {
-      setStatMessage(err instanceof ApiError ? err.message : '设置失败')
-    }
-  }
-
-  const handlePrizeSave = async (evt: FormEvent) => {
-    evt.preventDefault()
-    try {
-      const parsed: PrizeItem[] = JSON.parse(prizeConfig)
-      await Api.updatePrizeConfig(parsed)
-      setPrizeMessage('中奖配置已更新')
-    } catch (err) {
-      setPrizeMessage(err instanceof ApiError ? err.message : '配置格式错误或保存失败')
-    }
-  }
-
-  const handleReset = async () => {
-    try {
-      const res = await Api.adminResetUsers()
-      setResetMessage(`已重置 ${res.resetChances} 位用户抽奖次数`)
-    } catch (err) {
-      setResetMessage(err instanceof ApiError ? err.message : '操作失败')
     }
   }
 
@@ -249,16 +143,6 @@ export function AdminDashboardPage() {
       setUserOffset(offset)
     } catch (err) {
       setUserMessage(err instanceof ApiError ? err.message : '加载用户失败')
-    }
-  }
-
-  const loadSpins = async () => {
-    try {
-      const res = await Api.adminFetchSpins()
-      setSpins(res.records || [])
-      setSpinTotal(res.total || 0)
-    } catch {
-      /* ignore */
     }
   }
 
@@ -318,7 +202,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  const updateUserRow = async (user: UserRow, changes: { chances?: number; inviteStatus?: number }) => {
+  const updateUserRow = async (user: UserRow, changes: { inviteStatus?: number }) => {
     try {
       await Api.adminUpdateUser(user.id, changes)
       setUsers((prev) =>
@@ -332,7 +216,7 @@ export function AdminDashboardPage() {
   }
 
   const inviteStatusOptions = [
-    { value: 0, label: '未中奖' },
+    { value: 0, label: '未领取' },
     { value: 1, label: '待填写' },
     { value: 2, label: '已完成' },
   ]
@@ -344,6 +228,8 @@ export function AdminDashboardPage() {
       </main>
     )
   }
+
+
   const envSection = (
     <section className="card admin-card">
       <h2>环境变量 (.env)</h2>
@@ -376,7 +262,6 @@ export function AdminDashboardPage() {
           <span>ID</span>
           <span>用户名</span>
           <span>等级</span>
-          <span>次数</span>
           <span>状态</span>
           <span>操作</span>
         </div>
@@ -385,18 +270,6 @@ export function AdminDashboardPage() {
             <span>{user.id}</span>
             <span>{user.username}</span>
             <span>Lv.{user.trustLevel}</span>
-            <span>
-              <input
-                type="number"
-                min={0}
-                value={user.chances}
-                onChange={(e) =>
-                  setUsers((prev) =>
-                    prev.map((item) => (item.id === user.id ? { ...item, chances: Number(e.target.value) } : item)),
-                  )
-                }
-              />
-            </span>
             <span>
               <select
                 value={user.inviteStatus}
@@ -418,7 +291,7 @@ export function AdminDashboardPage() {
                 className="btn btn-muted small"
                 type="button"
                 onClick={() =>
-                  updateUserRow(user, { chances: user.chances, inviteStatus: user.inviteStatus })
+                  updateUserRow(user, { inviteStatus: user.inviteStatus })
                 }
               >
                 保存
@@ -444,31 +317,6 @@ export function AdminDashboardPage() {
             下一页
           </button>
         </div>
-      </div>
-    </section>
-  )
-
-  const spinsSection = (
-    <section className="card admin-card">
-      <h2>最新抽奖记录</h2>
-      <p className="info">共 {spinTotal} 条记录</p>
-      <div className="admin-table spins">
-        <div className="admin-table__head">
-          <span>时间</span>
-          <span>用户</span>
-          <span>奖项</span>
-          <span>状态</span>
-        </div>
-        {spins.map((record) => (
-          <div className="admin-table__row" key={record.id}>
-            <span>{new Date(record.createdAt).toLocaleString()}</span>
-            <span>
-              {record.username}#{record.userId}
-            </span>
-            <span>{record.prize}</span>
-            <span>{record.status}</span>
-          </div>
-        ))}
       </div>
     </section>
   )
@@ -520,22 +368,22 @@ export function AdminDashboardPage() {
           <span>创建时间</span>
           <span>操作</span>
         </div>
-          {inviteCodes.map((code) => (
-            <div className="admin-table__row" key={code.id}>
-              <span>{code.code}</span>
-              <span>{code.userId ?? '-'}</span>
+        {inviteCodes.map((code) => (
+          <div className="admin-table__row" key={code.id}>
+            <span>{code.code}</span>
+            <span>{code.userId ?? '-'}</span>
             <span>{code.used ? (code.usedEmail ? '已使用 ✓' : '已使用') : '未使用'}</span>
             <span>{code.usedEmail ?? '-'}</span>
-              <span>{new Date(code.createdAt).toLocaleString()}</span>
-              <span className="invite-actions__row">
-                {!code.userId && !code.used && (
-                  <button className="btn btn-muted small" type="button" onClick={() => handleAssignInvite(code)}>
-                    绑定用户
-                  </button>
-                )}
-                <button className="btn btn-muted small" type="button" onClick={() => setEditingInvite(code)}>
-                  编辑
+            <span>{new Date(code.createdAt).toLocaleString()}</span>
+            <span className="invite-actions__row">
+              {!code.userId && !code.used && (
+                <button className="btn btn-muted small" type="button" onClick={() => handleAssignInvite(code)}>
+                  绑定用户
                 </button>
+              )}
+              <button className="btn btn-muted small" type="button" onClick={() => setEditingInvite(code)}>
+                编辑
+              </button>
               <button className="btn btn-muted small" type="button" onClick={() => handleDeleteInvite(code)}>
                 删除
               </button>
@@ -642,84 +490,6 @@ export function AdminDashboardPage() {
     </section>
   )
 
-  const quotaSection = (
-    <section className="card admin-card">
-      <h2>剩余名额与定时</h2>
-      <form onSubmit={handleQuotaUpdate} className="form-row">
-        <input type="number" min={0} value={quotaInput} onChange={(e) => setQuotaInput(e.target.value)} placeholder="立即设置名额" required />
-        <button className="btn btn-primary">立即更新</button>
-      </form>
-      <form onSubmit={handleSchedule} className="form-row">
-        <input type="number" min={0} value={scheduleTarget} onChange={(e) => setScheduleTarget(e.target.value)} placeholder="定时名额" required />
-        <input type="number" min={1} value={scheduleMinutes} onChange={(e) => setScheduleMinutes(Number(e.target.value))} placeholder="分钟后生效" />
-        <button className="btn btn-muted">创建定时</button>
-      </form>
-      {statMessage && <p className="info">{statMessage}</p>}
-    </section>
-  )
-
-  const statsSection = (
-    <section className="card admin-card">
-      <h2>24 小时抽奖概览</h2>
-      {overview && (
-        <div className="overview">
-          <div>
-            <span>总计</span>
-            <strong>{overview.total}</strong>
-          </div>
-          <div>
-            <span>未中奖</span>
-            <strong>{overview.lose}</strong>
-          </div>
-          <div>
-            <span>再来一次</span>
-            <strong>{overview.retry}</strong>
-          </div>
-          <div>
-            <span>中奖</span>
-            <strong>{overview.win}</strong>
-          </div>
-        </div>
-      )}
-      <div className="table">
-        <div className="table__head">
-          <span>时间</span>
-          <span>未中奖</span>
-          <span>再来一次</span>
-          <span>中奖</span>
-        </div>
-        {stats.map((row) => (
-          <div className="table__row" key={row.hourLabel}>
-            <span>{row.hourLabel}</span>
-            <span>{row.lose}</span>
-            <span>{row.retry}</span>
-            <span>{row.win}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-
-  const prizeSection = (
-    <section className="card admin-card">
-      <h2>中奖概率配置 (JSON)</h2>
-      <form onSubmit={handlePrizeSave} className="prize-form">
-        <textarea value={prizeConfig} onChange={(e) => setPrizeConfig(e.target.value)} rows={8} />
-        {prizeMessage && <p className="info">{prizeMessage}</p>}
-        <button className="btn btn-primary">保存配置</button>
-      </form>
-    </section>
-  )
-
-  const maintenanceSection = (
-    <section className="card admin-card">
-      <h2>维护工具</h2>
-      <button className="btn btn-muted" onClick={handleReset}>
-        重置未中奖用户抽奖次数
-      </button>
-      {resetMessage && <p className="info">{resetMessage}</p>}
-    </section>
-  )
 
   const teamAccountsSection = (
     <section className="card admin-card">
@@ -802,12 +572,7 @@ export function AdminDashboardPage() {
     { id: 'team-accounts', label: '🚗 车账号', content: teamAccountsSection },
     { id: 'env', label: '环境变量', content: envSection },
     { id: 'users', label: '用户管理', content: userSection },
-    { id: 'spins', label: '抽奖记录', content: spinsSection },
     { id: 'invites', label: '邀请码管理', content: inviteSection },
-    { id: 'quota', label: '名额 / 定时', content: quotaSection },
-    { id: 'stats', label: '抽奖统计', content: statsSection },
-    { id: 'prize', label: '概率配置', content: prizeSection },
-    { id: 'tools', label: '维护工具', content: maintenanceSection },
   ]
 
   const resolvedSectionId = sections.some((section) => section.id === activeSection)
@@ -839,6 +604,7 @@ export function AdminDashboardPage() {
     </main>
   )
 }
+
 type InviteCodeRow = {
   id: number
   code: string
@@ -847,5 +613,4 @@ type InviteCodeRow = {
   userId: number | null
   teamAccountId?: number | null
   createdAt: string
-  usedAt?: string | null
 }

@@ -7,7 +7,6 @@ CREATE TABLE IF NOT EXISTS users (
     trust_level INTEGER DEFAULT 0,
     active BOOLEAN DEFAULT TRUE,
     silenced BOOLEAN DEFAULT FALSE,
-    chances INTEGER DEFAULT 1,
     invite_status SMALLINT DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -16,17 +15,6 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS spin_records (
-    id BIGSERIAL PRIMARY KEY,
-    user_id BIGINT REFERENCES users(id),
-    username TEXT NOT NULL,
-    prize TEXT NOT NULL,
-    status TEXT NOT NULL,
-    detail TEXT,
-    spin_id TEXT UNIQUE NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 CREATE TABLE IF NOT EXISTS invite_codes (
@@ -40,7 +28,6 @@ CREATE TABLE IF NOT EXISTS invite_codes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_status ON users(invite_status);
-CREATE INDEX IF NOT EXISTS idx_spin_records_user_id ON spin_records(user_id);
 CREATE INDEX IF NOT EXISTS idx_invite_codes_user_id ON invite_codes(user_id);
 
 CREATE TABLE IF NOT EXISTS team_accounts (
@@ -54,6 +41,3 @@ CREATE TABLE IF NOT EXISTS team_accounts (
 );
 
 ALTER TABLE invite_codes ADD COLUMN IF NOT EXISTS team_account_id BIGINT REFERENCES team_accounts(id);
-
-INSERT INTO config (key, value) VALUES ('quota', '0')
-    ON CONFLICT (key) DO NOTHING;

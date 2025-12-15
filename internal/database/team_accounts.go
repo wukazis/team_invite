@@ -25,7 +25,7 @@ type TeamAccountStatus struct {
 }
 
 func (s *Store) ListTeamAccounts(ctx context.Context) ([]TeamAccount, error) {
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, name, account_id, auth_token, max_seats, enabled, created_at
 		FROM team_accounts
 		ORDER BY id ASC`)
@@ -46,11 +46,14 @@ func (s *Store) ListTeamAccounts(ctx context.Context) ([]TeamAccount, error) {
 }
 
 func (s *Store) ListEnabledTeamAccounts(ctx context.Context) ([]TeamAccount, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, account_id, auth_token, max_seats, enabled, created_at
-		FROM team_accounts
-		WHERE enabled = true
-		ORDER BY id ASC`)
+	var query string
+	if s.dbType == "sqlite" {
+		query = `SELECT id, name, account_id, auth_token, max_seats, enabled, created_at FROM team_accounts WHERE enabled = 1 ORDER BY id ASC`
+	} else {
+		query = `SELECT id, name, account_id, auth_token, max_seats, enabled, created_at FROM team_accounts WHERE enabled = true ORDER BY id ASC`
+	}
+
+	rows, err := s.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -68,9 +71,14 @@ func (s *Store) ListEnabledTeamAccounts(ctx context.Context) ([]TeamAccount, err
 }
 
 func (s *Store) GetTeamAccount(ctx context.Context, id int64) (*TeamAccount, error) {
-	row := s.pool.QueryRow(ctx, `
-		SELECT id, name, account_id, auth_token, max_seats, enabled, created_at
-		FROM team_accounts WHERE id = $1`, id)
+	var query string
+	if s.dbType == "sqlite" {
+		query = `SELECT id, name, account_id, auth_token, max_seats, enabled, created_at FROM team_accounts WHERE id = ?`
+	} else {
+		query = `SELECT id, name, account_id, auth_token, max_seats, enabled, created_at FROM team_accounts WHERE id = $1`
+	}
+
+	row := s.db.QueryRowContext(ctx, query, id)
 	var a TeamAccount
 	if err := row.Scan(&a.ID, &a.Name, &a.AccountID, &a.AuthToken, &a.MaxSeats, &a.Enabled, &a.CreatedAt); err != nil {
 		return nil, err
@@ -79,11 +87,14 @@ func (s *Store) GetTeamAccount(ctx context.Context, id int64) (*TeamAccount, err
 }
 
 func (s *Store) CreateTeamAccount(ctx context.Context, name, accountID, authToken string, maxSeats int) (*TeamAccount, error) {
-	row := s.pool.QueryRow(ctx, `
-		INSERT INTO team_accounts (name, account_id, auth_token, max_seats)
-		VALUES ($1, $2, $3, $4)
-		RETURNING id, name, account_id, auth_token, max_seats, enabled, created_at`,
-		name, accountID, authToken, maxSeats)
+	var query string
+	if s.dbType == "sqlite" {
+		query = `INSERT INTO team_accounts (name, account_id, auth_token, max_seats) VALUES (?, ?, ?, ?) RETURNING id, name, account_id, auth_token, max_seats, enabled, created_at`
+	} else {
+		query = `INSERT INTO team_accounts (name, account_id, auth_token, max_seats) VALUES ($1, $2, $3, $4) RETURNING id, name, account_id, auth_token, max_seats, enabled, created_at`
+	}
+
+	row := s.db.QueryRowContext(ctx, query, name, accountID, authToken, maxSeats)
 	var a TeamAccount
 	if err := row.Scan(&a.ID, &a.Name, &a.AccountID, &a.AuthToken, &a.MaxSeats, &a.Enabled, &a.CreatedAt); err != nil {
 		return nil, err
@@ -92,15 +103,31 @@ func (s *Store) CreateTeamAccount(ctx context.Context, name, accountID, authToke
 }
 
 func (s *Store) UpdateTeamAccount(ctx context.Context, id int64, name, accountID, authToken string, maxSeats int, enabled bool) error {
-	_, err := s.pool.Exec(ctx, `
-		UPDATE team_accounts
-		SET name = $2, account_id = $3, auth_token = $4, max_seats = $5, enabled = $6
-		WHERE id = $1`,
-		id, name, accountID, authToken, maxSeats, enabled)
+	var query string
+	if s.dbType == "sqlite" {
+		query = `UPDATE team_accounts SET name = ?, account_id = ?, auth_token = ?, max_seats = ?, enabled = ? WHERE id = ?`
+		_, err := s.db.ExecContext(ctx, query, name, accountID, authToken, maxSeats, boolToInt(enabled), id)
+		return err
+	}
+	query = `UPDATE team_accounts SET name = $1, account_id = $2, auth_token = $3, max_seats = $4, enabled = $5 WHERE id = $6`
+	_, err := s.db.ExecContext(ctx, query, name, accountID, authToken, maxSeats, enabled, id)
 	return err
 }
 
 func (s *Store) DeleteTeamAccount(ctx context.Context, id int64) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM team_accounts WHERE id = $1`, id)
+	var query string
+	if s.dbType == "sqlite" {
+		query = `DELETE FROM team_accounts WHERE id = ?`
+	} else {
+		query = `DELETE FROM team_accounts WHERE id = $1`
+	}
+	_, err := s.db.ExecContext(ctx, query, id)
 	return err
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }

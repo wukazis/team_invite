@@ -74,31 +74,10 @@ export const Api = {
         displayName: string
         trustLevel: number
         avatarTemplate?: string
-        chances: number
         inviteStatus: number
       }
-      quota: number
       invite?: { code?: string; used?: boolean; usedEmail?: string; usedAt?: string; createdAt?: string }
     }>('/api/state')
-  },
-  getQuotaPublic() {
-    return apiRequest<{
-      quota: number
-      updatedAt: string
-      serverTime?: string
-      schedule?: { applyAt: string; target: number; message?: string; author?: string; createdAt?: string } | null
-    }>('/api/quota/public', { method: 'GET' }, null)
-  },
-  spin(spinId: string) {
-    return apiRequest<{
-      prize: { type: string; name: string }
-      invite?: { code: string; used?: boolean; usedEmail?: string; usedAt?: string; createdAt?: string }
-      quota: number
-      spinStatus: string
-    }>('/api/spins', {
-      method: 'POST',
-      body: JSON.stringify({ spinId }),
-    })
   },
   submitInvite(email: string, teamAccountId: number, code?: string, turnstileToken?: string) {
     return apiRequest<{ status: string }>('/api/invite', {
@@ -129,44 +108,14 @@ export const Api = {
       body: JSON.stringify(env),
     }, 'admin')
   },
-  adminUpdateQuota(value: number) {
-    return apiRequest<{ quota: number }>('/api/admin/quota', {
-      method: 'POST',
-      body: JSON.stringify({ value }),
-    }, 'admin')
-  },
-  adminScheduleQuota(payload: { target: number; delayMinutes?: number; applyAt?: string; message?: string }) {
-    return apiRequest<{ scheduled: unknown }>('/api/admin/quota/schedule', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }, 'admin')
-  },
-  adminResetUsers() {
-    return apiRequest<{ resetChances: number }>('/api/admin/users/reset', { method: 'POST' }, 'admin')
-  },
-  adminStats() {
-    return apiRequest<{ overview: { total: number; win: number; retry: number; lose: number; unknown: number }; stats: Array<{ hourLabel: string; win: number; retry: number; lose: number }> }>('/api/admin/stats/hourly', { method: 'GET' }, 'admin')
-  },
-  adminGetPrizeConfig() {
-    return apiRequest<{ items: Array<{ type: string; name: string; probability: number }> }>('/api/admin/prize-config', { method: 'GET' }, 'admin')
-  },
-  updatePrizeConfig(payload: Array<{ type: string; name: string; probability: number }>) {
-    return apiRequest<{ updated: number }>('/api/admin/prize-config', {
-      method: 'PUT',
-      body: JSON.stringify(payload),
-    }, 'admin')
-  },
   adminFetchUsers(limit = 50, offset = 0) {
     return apiRequest<{ users: Array<any>; total: number }>(`/api/admin/users?limit=${limit}&offset=${offset}`, { method: 'GET' }, 'admin')
   },
-  adminUpdateUser(id: number, payload: { chances?: number; inviteStatus?: number }) {
+  adminUpdateUser(id: number, payload: { inviteStatus?: number }) {
     return apiRequest<{ status: string }>(`/api/admin/users/${id}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     }, 'admin')
-  },
-  adminFetchSpins(limit = 50, offset = 0) {
-    return apiRequest<{ records: Array<any>; total: number }>(`/api/admin/spins?limit=${limit}&offset=${offset}`, { method: 'GET' }, 'admin')
   },
   adminFetchInviteCodes(limit = 50, offset = 0) {
     return apiRequest<{ codes: Array<any>; total: number }>(`/api/admin/invite-codes?limit=${limit}&offset=${offset}`, { method: 'GET' }, 'admin')

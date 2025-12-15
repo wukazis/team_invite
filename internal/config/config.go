@@ -4,9 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -26,26 +24,21 @@ type InviteAccount struct {
 }
 
 type Config struct {
-	EnvFilePath       string
-	HTTPPort          string
-	PostgresURL       string
-	JWTSecret         string
-	JWTIssuer         string
-	AdminPassword     string
-	AdminAllowedIPs   []string
-	AdminTOTPSecret   string
-	PrizeConfigTTL    time.Duration
-	QuotaScheduleTick time.Duration
-	AppBaseURL        string
-	InviteAccountID   string
-	InviteAuthToken   string
-	InviteProxyURL    string
-	InviteProxySecret string
-	InviteAccounts    []InviteAccount
-	InviteStrategy    string
-	InviteActiveID    string
-	TurnstileSiteKey  string
-	TurnstileSecret   string
+	EnvFilePath      string
+	HTTPPort         string
+	PostgresURL      string
+	JWTSecret        string
+	JWTIssuer        string
+	AdminPassword    string
+	AdminAllowedIPs  []string
+	AdminTOTPSecret  string
+	AppBaseURL       string
+	InviteAccountID  string
+	InviteAuthToken  string
+	InviteAccounts   []InviteAccount
+	InviteActiveID   string
+	TurnstileSiteKey string
+	TurnstileSecret  string
 
 	OAuth LinuxDoOAuth
 }
@@ -60,25 +53,20 @@ func Load() (*Config, error) {
 	}
 
 	cfg := &Config{
-		EnvFilePath:       getEnv("ENV_FILE_PATH", envPath),
-		HTTPPort:          getEnv("HTTP_PORT", "8080"),
-		PostgresURL:       os.Getenv("POSTGRES_URL"),
-		JWTSecret:         os.Getenv("JWT_SECRET"),
-		JWTIssuer:         getEnv("JWT_ISSUER", "team-invite"),
-		AdminPassword:     os.Getenv("ADMIN_PASSWORD"),
-		AdminAllowedIPs:   splitCSV(os.Getenv("ADMIN_ALLOWED_IPS")),
-		AdminTOTPSecret:   os.Getenv("ADMIN_TOTP_SECRET"),
-		PrizeConfigTTL:    getDuration("PRIZE_CACHE_TTL", 30*time.Second),
-		QuotaScheduleTick: getDuration("QUOTA_SCHEDULER_TICK", 5*time.Second),
-		AppBaseURL:        getEnv("APP_BASE_URL", "http://localhost:5173"),
-		InviteAccountID:   os.Getenv("ACCOUNT_ID"),
-		InviteAuthToken:   os.Getenv("AUTHORIZATION_TOKEN"),
-		InviteProxyURL:    os.Getenv("CF_PROXY_URL"),
-		InviteProxySecret: os.Getenv("CF_PROXY_SECRET"),
-		InviteStrategy:    getEnv("INVITE_STRATEGY", "primary"),
-		InviteActiveID:    os.Getenv("INVITE_ACTIVE_ACCOUNT_ID"),
-		TurnstileSiteKey:  os.Getenv("CF_TURNSTILE_SITE_KEY"),
-		TurnstileSecret:   os.Getenv("CF_TURNSTILE_SECRET_KEY"),
+		EnvFilePath:      getEnv("ENV_FILE_PATH", envPath),
+		HTTPPort:         getEnv("HTTP_PORT", "8080"),
+		PostgresURL:      os.Getenv("POSTGRES_URL"),
+		JWTSecret:        os.Getenv("JWT_SECRET"),
+		JWTIssuer:        getEnv("JWT_ISSUER", "team-invite"),
+		AdminPassword:    os.Getenv("ADMIN_PASSWORD"),
+		AdminAllowedIPs:  splitCSV(os.Getenv("ADMIN_ALLOWED_IPS")),
+		AdminTOTPSecret:  os.Getenv("ADMIN_TOTP_SECRET"),
+		AppBaseURL:       getEnv("APP_BASE_URL", "http://localhost:5173"),
+		InviteAccountID:  os.Getenv("ACCOUNT_ID"),
+		InviteAuthToken:  os.Getenv("AUTHORIZATION_TOKEN"),
+		InviteActiveID:   os.Getenv("INVITE_ACTIVE_ACCOUNT_ID"),
+		TurnstileSiteKey: os.Getenv("CF_TURNSTILE_SITE_KEY"),
+		TurnstileSecret:  os.Getenv("CF_TURNSTILE_SECRET_KEY"),
 		OAuth: LinuxDoOAuth{
 			ClientID:     os.Getenv("LINUXDO_CLIENT_ID"),
 			ClientSecret: os.Getenv("LINUXDO_CLIENT_SECRET"),
@@ -89,9 +77,7 @@ func Load() (*Config, error) {
 		},
 	}
 
-	if cfg.PostgresURL == "" {
-		return nil, errors.New("POSTGRES_URL is required")
-	}
+	// POSTGRES_URL is optional - if not set, SQLite will be used
 	if cfg.JWTSecret == "" {
 		return nil, errors.New("JWT_SECRET is required")
 	}
@@ -141,20 +127,6 @@ func splitCSV(raw string) []string {
 		}
 	}
 	return out
-}
-
-func getDuration(key string, def time.Duration) time.Duration {
-	raw := os.Getenv(key)
-	if raw == "" {
-		return def
-	}
-	if d, err := time.ParseDuration(raw); err == nil {
-		return d
-	}
-	if v, err := strconv.Atoi(raw); err == nil {
-		return time.Duration(v) * time.Second
-	}
-	return def
 }
 
 func resolveEnvPath() string {

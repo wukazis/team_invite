@@ -12,14 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"team-invite/internal/auth"
-	"team-invite/internal/cache"
 	"team-invite/internal/config"
 	"team-invite/internal/database"
 	"team-invite/internal/handlers"
 	"team-invite/internal/oauth"
-	"team-invite/internal/scheduler"
 	adminsvc "team-invite/internal/services/admin"
-	"team-invite/internal/services/draw"
 	invitesvc "team-invite/internal/services/invite"
 	"team-invite/internal/services/teamstatus"
 )
@@ -45,22 +42,16 @@ func main() {
 
 	jwtMgr := auth.NewManager(cfg.JWTSecret, cfg.JWTIssuer)
 	oauthClient := oauth.NewClient(cfg.OAuth)
-	prizeCache := cache.NewPrizeConfigCache(cfg.PrizeConfigTTL, store.LoadPrizeConfig)
 	envSvc := adminsvc.NewEnvService(cfg.EnvFilePath)
-	drawSvc := draw.NewService(store, prizeCache, logger)
 	inviter := invitesvc.New("")
 	teamStatusSvc := teamstatus.New(store, logger, 30*time.Second)
 	teamStatusSvc.Start(ctx)
-
-	quotaRunner := scheduler.NewQuotaRunner(store, cfg.QuotaScheduleTick, logger)
-	quotaRunner.Start(ctx)
-	defer quotaRunner.Stop()
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	handler := handlers.NewHandler(cfg, store, drawSvc, envSvc, jwtMgr, oauthClient, prizeCache, inviter, teamStatusSvc, logger)
+	handler := handlers.NewHandler(cfg, store, envSvc, jwtMgr, oauthClient, inviter, teamStatusSvc, logger)
 	handlers.RegisterRoutes(r, handler, jwtMgr, cfg.AdminAllowedIPs)
 
 	srv := &http.Server{
