@@ -44,6 +44,8 @@ type Config struct {
 	InviteAccounts    []InviteAccount
 	InviteStrategy    string
 	InviteActiveID    string
+	TurnstileSiteKey  string
+	TurnstileSecret   string
 
 	OAuth LinuxDoOAuth
 }
@@ -75,6 +77,8 @@ func Load() (*Config, error) {
 		InviteProxySecret: os.Getenv("CF_PROXY_SECRET"),
 		InviteStrategy:    getEnv("INVITE_STRATEGY", "primary"),
 		InviteActiveID:    os.Getenv("INVITE_ACTIVE_ACCOUNT_ID"),
+		TurnstileSiteKey:  os.Getenv("CF_TURNSTILE_SITE_KEY"),
+		TurnstileSecret:   os.Getenv("CF_TURNSTILE_SECRET_KEY"),
 		OAuth: LinuxDoOAuth{
 			ClientID:     os.Getenv("LINUXDO_CLIENT_ID"),
 			ClientSecret: os.Getenv("LINUXDO_CLIENT_SECRET"),

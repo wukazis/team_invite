@@ -40,6 +40,7 @@ type InviteCode struct {
 	UsedEmail *string    `json:"usedEmail"`
 	UsedAt    *time.Time `json:"usedAt"`
 	UserID    *int64     `json:"userId"`
+	TeamAccountID *int64 `json:"teamAccountId"`
 	CreatedAt time.Time  `json:"createdAt"`
 }
 

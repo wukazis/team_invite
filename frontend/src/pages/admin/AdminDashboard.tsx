@@ -48,11 +48,6 @@ type SpinRow = {
 const ENV_DISPLAY_ORDER: Array<{ key: string; fullWidth?: boolean }> = [
   { key: 'SECRET_KEY' },
   { key: 'ADMIN_PASSWORD' },
-  { key: 'AUTHORIZATION_TOKEN' },
-  { key: 'ACCOUNT_ID' },
-  { key: 'INVITE_ACCOUNTS', fullWidth: true },
-  { key: 'INVITE_STRATEGY' },
-  { key: 'INVITE_ACTIVE_ACCOUNT_ID' },
   { key: 'JWT_SECRET' },
   { key: 'POSTGRES_URL' },
   { key: 'CF_TURNSTILE_SECRET_KEY' },
@@ -87,6 +82,8 @@ export function AdminDashboardPage() {
   const [inviteMessage, setInviteMessage] = useState<string | null>(null)
   const [inviteCountInput, setInviteCountInput] = useState('1')
   const [editingInvite, setEditingInvite] = useState<InviteCodeRow | null>(null)
+  const [selectedInviteAccountId, setSelectedInviteAccountId] = useState<number | null>(null)
+  const [generateInviteAccountId, setGenerateInviteAccountId] = useState<number | null>(null)
   const [userOffset, setUserOffset] = useState(0)
   const [inviteOffset, setInviteOffset] = useState(0)
   const [activeSection, setActiveSection] = useState('env')
@@ -99,10 +96,24 @@ export function AdminDashboardPage() {
     Promise.all([loadEnv(), loadStats(), loadPrizeConfig(), loadUsers(0), loadSpins(), loadInviteCodes(), loadTeamAccounts()]).finally(() => setEnvLoading(false))
   }, [])
 
+  useEffect(() => {
+    if (!editingInvite) {
+      setSelectedInviteAccountId(null)
+      return
+    }
+    const preferred = teamAccounts.find((acc) => acc.enabled) ?? teamAccounts[0]
+    setSelectedInviteAccountId(preferred ? preferred.id : null)
+  }, [editingInvite, teamAccounts])
+
   const loadTeamAccounts = async () => {
     try {
       const res = await Api.adminListTeamAccounts()
-      setTeamAccounts(res.accounts || [])
+      const accounts = res.accounts || []
+      setTeamAccounts(accounts)
+      if (!generateInviteAccountId && accounts.length > 0) {
+        const enabled = accounts.find((a: any) => a.enabled)
+        setGenerateInviteAccountId(enabled ? enabled.id : accounts[0].id)
+      }
     } catch {
       setTeamAccountMessage('加载车账号失败')
     }
@@ -267,7 +278,7 @@ export function AdminDashboardPage() {
     evt.preventDefault()
     const count = Math.min(10, Math.max(1, Number(inviteCountInput) || 1))
     try {
-      const res = await Api.adminCreateInviteCodes(count)
+      const res = await Api.adminCreateInviteCodes(count, generateInviteAccountId || undefined)
       const codes = res.codes?.map((item) => item.code).join(', ')
       setInviteMessage(codes ? `已生成：${codes}` : '已生成新的邀请码')
       setInviteCountInput('1')
@@ -481,6 +492,21 @@ export function AdminDashboardPage() {
           onChange={(e) => setInviteCountInput(e.target.value)}
           placeholder="生成数量 (1-10)"
         />
+        <select
+          className="fancy-select"
+          value={generateInviteAccountId ?? ''}
+          onChange={(e) => setGenerateInviteAccountId(Number(e.target.value) || null)}
+          required
+        >
+          <option value="" disabled>
+            {teamAccounts.length === 0 ? '请选择车账号' : '绑定车账号'}
+          </option>
+          {teamAccounts.map((acc) => (
+            <option key={acc.id} value={acc.id}>
+              {acc.name} {acc.enabled ? '' : '(禁用)'}
+            </option>
+          ))}
+        </select>
         <button className="btn btn-primary small" type="submit">
           生成邀请码
         </button>
@@ -563,6 +589,23 @@ export function AdminDashboardPage() {
                 disabled={!editingInvite.used}
               />
             </label>
+            {editingInvite.used && (
+              <label>
+                <span>车账号</span>
+                <select
+                  value={selectedInviteAccountId ?? ''}
+                  onChange={(e) => setSelectedInviteAccountId(Number(e.target.value) || null)}
+                  required
+                >
+                  <option value="">请选择</option>
+                  {teamAccounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} {acc.enabled ? '' : '(禁用)'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
           <div className="env-actions">
             <button className="btn btn-muted small" type="button" onClick={() => setEditingInvite(null)}>
@@ -573,10 +616,15 @@ export function AdminDashboardPage() {
               type="button"
               onClick={async () => {
                 if (!editingInvite) return
+                if (editingInvite.used && !selectedInviteAccountId) {
+                  setInviteMessage('请选择车账号')
+                  return
+                }
                 try {
                   await Api.adminUpdateInviteCode(editingInvite.id, {
                     used: editingInvite.used,
                     usedEmail: editingInvite.used ? (editingInvite.usedEmail || undefined) : undefined,
+                    teamAccountId: editingInvite.used ? selectedInviteAccountId || undefined : undefined,
                   })
                   setInviteMessage('邀请码已更新')
                   setEditingInvite(null)
@@ -797,6 +845,7 @@ type InviteCodeRow = {
   used: boolean
   usedEmail?: string | null
   userId: number | null
+  teamAccountId?: number | null
   createdAt: string
   usedAt?: string | null
 }

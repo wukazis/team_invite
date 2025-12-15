@@ -1,8 +1,18 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Api, ApiError, type TeamAccountStatus } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import './Invite.css'
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (element: HTMLElement, options: Record<string, any>) => any
+      reset?: (id: any) => void
+      remove?: (id: any) => void
+    }
+  }
+}
 
 export function InvitePage() {
   const { userToken } = useAuth()
@@ -15,17 +25,23 @@ export function InvitePage() {
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [teamAccounts, setTeamAccounts] = useState<TeamAccountStatus[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
-  const [loadingAccounts, setLoadingAccounts] = useState(true)
+  const [turnstileSiteKey, setTurnstileSiteKey] = useState('')
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const widgetRef = useRef<HTMLDivElement | null>(null)
+  const widgetIdRef = useRef<any>(null)
   const navigate = useNavigate()
+  const resolveTimerRef = useRef<number | null>(null)
+  const [lockedTeamAccountId, setLockedTeamAccountId] = useState<number | null>(null)
+  const [loadingAccounts, setLoadingAccounts] = useState(true)
 
   useEffect(() => {
     // 加载车的状态
     Api.getTeamAccountsStatus()
       .then((res) => {
-        setTeamAccounts(res.accounts || [])
-        if (res.accounts?.length > 0) {
-          setSelectedAccountId(res.accounts[0].id)
-        }
+        const accounts = res.accounts || []
+        setTeamAccounts(accounts)
+        const selectable = accounts.find((acc) => acc.seatsInUse + acc.pendingInvites < 5)
+        setSelectedAccountId(selectable ? selectable.id : accounts[0]?.id ?? null)
       })
       .catch(() => setTeamAccounts([]))
       .finally(() => setLoadingAccounts(false))
@@ -50,26 +66,129 @@ export function InvitePage() {
       })
   }, [userToken])
 
+  useEffect(() => {
+    Api.getTurnstileSiteKey()
+      .then((res) => setTurnstileSiteKey(res.siteKey || ''))
+      .catch(() => setTurnstileSiteKey(''))
+  }, [])
+
+  useEffect(() => {
+    if (!turnstileSiteKey) return
+    const ensureScript = () =>
+      new Promise<void>((resolve, reject) => {
+        if (window.turnstile) {
+          resolve()
+          return
+        }
+        const existing = document.querySelector('script[data-turnstile]')
+        if (existing) {
+          existing.addEventListener('load', () => resolve(), { once: true })
+          existing.addEventListener('error', () => reject(new Error('turnstile script load failed')), { once: true })
+          return
+        }
+        const script = document.createElement('script')
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
+        script.async = true
+        script.defer = true
+        script.setAttribute('data-turnstile', '1')
+        script.onload = () => resolve()
+        script.onerror = () => reject(new Error('turnstile script load failed'))
+        document.body.appendChild(script)
+      })
+
+    ensureScript()
+      .then(() => {
+        if (!window.turnstile || !widgetRef.current) return
+        widgetIdRef.current = window.turnstile.render(widgetRef.current, {
+          sitekey: turnstileSiteKey,
+          theme: 'light',
+          callback: (token: string) => setTurnstileToken(token),
+          'error-callback': () => setTurnstileToken(null),
+          'expired-callback': () => setTurnstileToken(null),
+        })
+      })
+      .catch(() => {
+        setTurnstileToken(null)
+      })
+
+    return () => {
+      if (widgetIdRef.current && window.turnstile?.remove) {
+        window.turnstile.remove(widgetIdRef.current)
+      }
+    }
+  }, [turnstileSiteKey])
+
+  useEffect(() => {
+    if (inviteCode) return
+    const trimmed = manualCode.trim()
+    if (!trimmed) {
+      setLockedTeamAccountId(null)
+    }
+    if (resolveTimerRef.current) {
+      window.clearTimeout(resolveTimerRef.current)
+    }
+    if (!trimmed) return
+    resolveTimerRef.current = window.setTimeout(() => {
+      Api.resolveInviteCode(trimmed)
+        .then((res) => {
+          if (res.teamAccountId) {
+            setLockedTeamAccountId(res.teamAccountId)
+            const exists = teamAccounts.find((a) => a.id === res.teamAccountId)
+            if (exists) {
+              setSelectedAccountId(res.teamAccountId)
+            }
+          } else {
+            setLockedTeamAccountId(null)
+          }
+        })
+        .catch(() => {})
+    }, 300)
+    return () => {
+      if (resolveTimerRef.current) {
+        window.clearTimeout(resolveTimerRef.current)
+      }
+    }
+  }, [manualCode, inviteCode, teamAccounts])
+
+  const getAvailableSeats = (acc: TeamAccountStatus) => {
+    return acc.seatsEntitled - acc.seatsInUse - acc.pendingInvites
+  }
+
   const handleSubmit = async (evt: FormEvent) => {
     evt.preventDefault()
     setStatus('submitting')
     setError(null)
     setSuccessMessage(null)
+    if (!selectedAccountId) {
+      setError('请选择要加入的车位')
+      setStatus('idle')
+      return
+    }
+    if (turnstileSiteKey && !turnstileToken) {
+      setError('请完成人机验证')
+      setStatus('idle')
+      return
+    }
     try {
       const payloadCode = inviteCode ?? manualCode.trim()
-      await Api.submitInvite(email, payloadCode)
+      await Api.submitInvite(email, selectedAccountId, payloadCode, turnstileToken || undefined)
       setUsedEmail(email)
       setStatus('completed')
       setSuccessMessage('发送成功 ✓')
+      // 刷新车状态
+      Api.getTeamAccountsStatus()
+        .then((res) => {
+          const accounts = res.accounts || []
+          setTeamAccounts(accounts)
+          const selectable = accounts.find((acc) => acc.seatsInUse + acc.pendingInvites < 5)
+          setSelectedAccountId(selectable ? selectable.id : accounts[0]?.id ?? null)
+        })
+        .catch(() => {})
     } catch (err) {
       const message = err instanceof ApiError ? err.message : '提交失败，请稍后再试'
       setError(message)
       setStatus('idle')
     }
-  }
-
-  const getAvailableSeats = (acc: TeamAccountStatus) => {
-    return acc.seatsEntitled - acc.seatsInUse - acc.pendingInvites
   }
 
   if (!userToken) {
@@ -95,11 +214,12 @@ export function InvitePage() {
           <div className="team-accounts-dashboard">
             {teamAccounts.map((acc) => {
               const available = getAvailableSeats(acc)
-              const isFull = available <= 0
+              const isBusy = acc.seatsInUse + acc.pendingInvites >= 5
+              const isFull = isBusy
               const isSelected = selectedAccountId === acc.id
-              const usedPercent = (acc.seatsInUse / acc.seatsEntitled) * 100
-              const pendingPercent = (acc.pendingInvites / acc.seatsEntitled) * 100
-              const availablePercent = (available / acc.seatsEntitled) * 100
+              const usedPercent = acc.seatsEntitled > 0 ? (acc.seatsInUse / acc.seatsEntitled) * 100 : 0
+              const pendingPercent = acc.seatsEntitled > 0 ? (acc.pendingInvites / acc.seatsEntitled) * 100 : 0
+              const availablePercent = acc.seatsEntitled > 0 ? (available / acc.seatsEntitled) * 100 : 0
               return (
                 <div
                   key={acc.id}
@@ -196,10 +316,36 @@ export function InvitePage() {
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
             />
-            {selectedAccountId && teamAccounts.length > 0 && (
-              <p className="selected-account">
-                将加入: <strong>{teamAccounts.find(a => a.id === selectedAccountId)?.name}</strong>
-              </p>
+            <label>
+              <span>将加入</span>
+              <select
+                className="fancy-select"
+                value={selectedAccountId ?? ''}
+                onChange={(e) => {
+                  if (lockedTeamAccountId) return
+                  setSelectedAccountId(Number(e.target.value) || null)
+                }}
+                required
+                disabled={Boolean(lockedTeamAccountId)}
+              >
+                <option value="" disabled>
+                  {teamAccounts.length === 0 ? '暂无车位' : '请选择车位'}
+                </option>
+                {teamAccounts.map((acc) => {
+                  const busy = acc.seatsInUse + acc.pendingInvites >= 5
+                  return (
+                    <option key={acc.id} value={acc.id} disabled={busy && !lockedTeamAccountId}>
+                      {acc.name} ({acc.seatsInUse + acc.pendingInvites}/{acc.seatsEntitled}) {busy ? '(不可选)' : ''}
+                    </option>
+                  )
+                })}
+              </select>
+              {lockedTeamAccountId && <p className="muted">该邀请码已绑定车位，已自动选择</p>}
+            </label>
+            {turnstileSiteKey && (
+              <div className="turnstile-block">
+                <div ref={widgetRef} />
+              </div>
             )}
             {error && <p className="error">{error}</p>}
             {successMessage && <p className="success-text">{successMessage}</p>}

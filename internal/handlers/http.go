@@ -2,10 +2,12 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -27,18 +29,14 @@ import (
 	adminsvc "team-invite/internal/services/admin"
 	"team-invite/internal/services/draw"
 	invitesvc "team-invite/internal/services/invite"
+	"team-invite/internal/services/teamstatus"
 )
 
 var allowedEnvKeys = []string{
 	"SECRET_KEY",
 	"ADMIN_PASSWORD",
-	"AUTHORIZATION_TOKEN",
-	"INVITE_ACCOUNTS",
-	"INVITE_STRATEGY",
-	"INVITE_ACTIVE_ACCOUNT_ID",
 	"JWT_SECRET",
 	"POSTGRES_URL",
-	"ACCOUNT_ID",
 	"CF_TURNSTILE_SECRET_KEY",
 	"CF_TURNSTILE_SITE_KEY",
 	"LINUXDO_CLIENT_ID",
@@ -56,11 +54,12 @@ type Handler struct {
 	cache      *cache.PrizeConfigCache
 	inviter    *invitesvc.Service
 	logger     *slog.Logger
+	teamStatus *teamstatus.Service
 	stateMu    sync.Mutex
 	stateStore map[string]time.Time
 }
 
-func NewHandler(cfg *config.Config, store *database.Store, drawSvc *draw.Service, envSvc *adminsvc.EnvService, jwt *auth.Manager, oauthClient *oauth.Client, prizeCache *cache.PrizeConfigCache, inviter *invitesvc.Service, logger *slog.Logger) *Handler {
+func NewHandler(cfg *config.Config, store *database.Store, drawSvc *draw.Service, envSvc *adminsvc.EnvService, jwt *auth.Manager, oauthClient *oauth.Client, prizeCache *cache.PrizeConfigCache, inviter *invitesvc.Service, teamStatus *teamstatus.Service, logger *slog.Logger) *Handler {
 	return &Handler{
 		cfg:        cfg,
 		store:      store,
@@ -70,6 +69,7 @@ func NewHandler(cfg *config.Config, store *database.Store, drawSvc *draw.Service
 		oauth:      oauthClient,
 		cache:      prizeCache,
 		inviter:    inviter,
+		teamStatus: teamStatus,
 		logger:     logger,
 		stateStore: make(map[string]time.Time),
 	}
@@ -78,6 +78,7 @@ func NewHandler(cfg *config.Config, store *database.Store, drawSvc *draw.Service
 func RegisterRoutes(r *gin.Engine, h *Handler, jwt *auth.Manager, adminIPs []string) {
 	r.GET("/api/health", h.Health)
 	r.GET("/api/quota/public", h.PublicQuota)
+	r.GET("/api/turnstile/site-key", h.GetTurnstileSiteKey)
 
 	r.GET("/api/oauth/login", h.OAuthLogin)
 	r.GET("/api/oauth/callback", h.OAuthCallback)
@@ -90,6 +91,7 @@ func RegisterRoutes(r *gin.Engine, h *Handler, jwt *auth.Manager, adminIPs []str
 	api.POST("/spins", h.Spin)
 	api.POST("/invite", h.InviteSubmit)
 	api.GET("/invite", h.InviteInfo)
+	api.GET("/invite/resolve", h.ResolveInviteCode)
 	api.GET("/team-accounts/status", h.PublicTeamAccountsStatus)
 
 	admin := r.Group("/api/admin")
@@ -304,8 +306,10 @@ func (h *Handler) Spin(c *gin.Context) {
 }
 
 type inviteRequest struct {
-	Email string `json:"email" binding:"required,email"`
-	Code  string `json:"code"`
+	Email         string `json:"email" binding:"required,email"`
+	Code          string `json:"code"`
+	TeamAccountID int64  `json:"teamAccountId"`
+	TurnstileToken string `json:"turnstileToken"`
 }
 
 func (h *Handler) InviteSubmit(c *gin.Context) {
@@ -318,6 +322,47 @@ func (h *Handler) InviteSubmit(c *gin.Context) {
 	claims := middleware.ClaimsFromContext(c)
 	if claims == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "missing claims"})
+		return
+	}
+	var boundTeamID *int64
+	if strings.TrimSpace(req.Code) != "" {
+		codeRecord, err := h.store.GetInviteCodeByCode(c.Request.Context(), req.Code)
+		if err != nil {
+			status := http.StatusBadRequest
+			if errors.Is(err, database.ErrInviteNotFound) {
+				status = http.StatusNotFound
+			}
+			c.JSON(status, gin.H{"error": "邀请码不可用"})
+			return
+		}
+		if codeRecord.Used {
+			c.JSON(http.StatusConflict, gin.H{"error": "邀请码已使用"})
+			return
+		}
+		if codeRecord.TeamAccountID != nil {
+			boundTeamID = codeRecord.TeamAccountID
+		}
+	}
+
+	if h.cfg.TurnstileSecret != "" {
+		if strings.TrimSpace(req.TurnstileToken) == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请完成人机验证"})
+			return
+		}
+		if err := h.verifyTurnstile(c.Request.Context(), req.TurnstileToken, clientIP(c)); err != nil {
+			h.logger.Warn("turnstile verification failed", "user", claims.UserID, "error", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "人机验证失败"})
+			return
+		}
+	}
+
+	teamAccountID := req.TeamAccountID
+	if boundTeamID != nil {
+		teamAccountID = *boundTeamID
+	}
+	account, err := h.getTeamAccount(c.Request.Context(), teamAccountID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -333,7 +378,7 @@ func (h *Handler) InviteSubmit(c *gin.Context) {
 			return
 		}
 		sendFunc := func(ctx context.Context) error {
-			return h.inviter.Send(ctx, req.Email)
+			return h.inviter.SendWithAccount(ctx, *account, req.Email)
 		}
 		if err := h.store.CompleteInviteSubmissionByCode(c.Request.Context(), req.Code, claims.UserID, req.Email, sendFunc); err != nil {
 			var sendErr *invitesvc.SendError
@@ -366,7 +411,7 @@ func (h *Handler) InviteSubmit(c *gin.Context) {
 		return
 	}
 	sendFunc := func(ctx context.Context) error {
-		return h.inviter.Send(ctx, req.Email)
+		return h.inviter.SendWithAccount(ctx, *account, req.Email)
 	}
 	if err := h.store.CompleteInviteSubmission(c.Request.Context(), invite.ID, req.Email, sendFunc); err != nil {
 		var sendErr *invitesvc.SendError
@@ -387,6 +432,85 @@ func (h *Handler) InviteSubmit(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": "submitted"})
+	go h.teamStatus.RefreshAsync(c.Request.Context())
+}
+
+func (h *Handler) getTeamAccount(ctx context.Context, id int64) (*config.InviteAccount, error) {
+	if id <= 0 {
+		return nil, errors.New("请选择车位")
+	}
+	acc, err := h.store.GetTeamAccount(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("车位不存在")
+	}
+	if !acc.Enabled {
+		return nil, fmt.Errorf("车位不可用")
+	}
+	if strings.TrimSpace(acc.AccountID) == "" || strings.TrimSpace(acc.AuthToken) == "" {
+		return nil, fmt.Errorf("车位凭据未配置")
+	}
+	return &config.InviteAccount{
+		AccountID:          acc.AccountID,
+		AuthorizationToken: acc.AuthToken,
+	}, nil
+}
+
+func (h *Handler) verifyTurnstile(ctx context.Context, token, ip string) error {
+	if h.cfg.TurnstileSecret == "" {
+		return nil
+	}
+	form := url.Values{}
+	form.Set("secret", h.cfg.TurnstileSecret)
+	form.Set("response", token)
+	if net.ParseIP(ip) != nil {
+		form.Set("remoteip", ip)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://challenges.cloudflare.com/turnstile/v0/siteverify", strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	var payload struct {
+		Success bool `json:"success"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		return err
+	}
+	if !payload.Success {
+		return fmt.Errorf("turnstile failed")
+	}
+	return nil
+}
+
+func clientIP(c *gin.Context) string {
+	ip := c.ClientIP()
+	if ip == "" {
+		return ""
+	}
+	return ip
+}
+
+func (h *Handler) refreshRuntimeConfig() {
+	values, err := h.env.Read()
+	if err != nil {
+		h.logger.Warn("env reload failed", "error", err)
+		return
+	}
+	if v, ok := values["CF_TURNSTILE_SITE_KEY"]; ok {
+		h.cfg.TurnstileSiteKey = v
+	}
+	if v, ok := values["CF_TURNSTILE_SECRET_KEY"]; ok {
+		h.cfg.TurnstileSecret = v
+	}
+	if v, ok := values["APP_BASE_URL"]; ok {
+		h.cfg.AppBaseURL = v
+	}
 }
 
 func (h *Handler) InviteInfo(c *gin.Context) {
@@ -401,6 +525,39 @@ func (h *Handler) InviteInfo(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"invite": invite})
+}
+
+func (h *Handler) GetTurnstileSiteKey(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"siteKey": h.cfg.TurnstileSiteKey})
+}
+
+func (h *Handler) ResolveInviteCode(c *gin.Context) {
+	code := strings.TrimSpace(c.Query("code"))
+	if code == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "缺少邀请码"})
+		return
+	}
+	invite, err := h.store.GetInviteCodeByCode(c.Request.Context(), code)
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, database.ErrInviteNotFound) {
+			status = http.StatusNotFound
+		}
+		c.JSON(status, gin.H{"error": "邀请码不可用"})
+		return
+	}
+	if invite.Used {
+		c.JSON(http.StatusConflict, gin.H{"error": "邀请码已使用"})
+		return
+	}
+	response := gin.H{"teamAccountId": invite.TeamAccountID}
+	if invite.TeamAccountID != nil {
+		acc, accErr := h.store.GetTeamAccount(c.Request.Context(), *invite.TeamAccountID)
+		if accErr == nil {
+			response["teamAccountName"] = acc.Name
+		}
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 type adminLoginRequest struct {
@@ -466,6 +623,7 @@ func (h *Handler) EnvUpdate(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "update failed"})
 		return
 	}
+	h.refreshRuntimeConfig()
 	c.JSON(http.StatusOK, gin.H{"updated": len(updates)})
 }
 
@@ -629,7 +787,8 @@ func (h *Handler) AdminListInviteCodes(c *gin.Context) {
 }
 
 type createInviteCodesRequest struct {
-	Count int `json:"count"`
+	Count         int   `json:"count"`
+	TeamAccountID *int64 `json:"teamAccountId"`
 }
 
 func (h *Handler) AdminCreateInviteCodes(c *gin.Context) {
@@ -644,7 +803,21 @@ func (h *Handler) AdminCreateInviteCodes(c *gin.Context) {
 	if req.Count > 10 {
 		req.Count = 10
 	}
-	codes, err := h.store.CreateInviteCodes(c.Request.Context(), req.Count)
+	var teamIDPtr *int64
+	if req.TeamAccountID != nil && *req.TeamAccountID > 0 {
+		acc, accErr := h.store.GetTeamAccount(c.Request.Context(), *req.TeamAccountID)
+		if accErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "车账号不存在"})
+			return
+		}
+		if !acc.Enabled {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "车账号已禁用"})
+			return
+		}
+		teamIDPtr = req.TeamAccountID
+	}
+
+	codes, err := h.store.CreateInviteCodes(c.Request.Context(), req.Count, teamIDPtr)
 	if err != nil {
 		h.logger.Error("admin create invite codes failed", "error", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "生成失败"})
@@ -654,8 +827,9 @@ func (h *Handler) AdminCreateInviteCodes(c *gin.Context) {
 }
 
 type updateInviteCodeRequest struct {
-	Used      bool    `json:"used"`
-	UsedEmail *string `json:"usedEmail"`
+	Used          bool    `json:"used"`
+	UsedEmail     *string `json:"usedEmail"`
+	TeamAccountID *int64  `json:"teamAccountId"`
 }
 
 func (h *Handler) AdminUpdateInviteCode(c *gin.Context) {
@@ -675,12 +849,21 @@ func (h *Handler) AdminUpdateInviteCode(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写邮箱"})
 			return
 		}
+		if req.TeamAccountID == nil || *req.TeamAccountID <= 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "请选择车位"})
+			return
+		}
+		account, accErr := h.getTeamAccount(c.Request.Context(), *req.TeamAccountID)
+		if accErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": accErr.Error()})
+			return
+		}
 		email := strings.TrimSpace(*req.UsedEmail)
 		if email == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "请填写邮箱"})
 			return
 		}
-		if err := h.inviter.Send(c.Request.Context(), email); err != nil {
+		if err := h.inviter.SendWithAccount(c.Request.Context(), *account, email); err != nil {
 			var sendErr *invitesvc.SendError
 			if errors.As(err, &sendErr) {
 				h.logger.Error("admin invite send failed", "status", sendErr.StatusCode, "body", sendErr.Body, "codeID", codeID)

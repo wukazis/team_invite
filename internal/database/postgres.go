@@ -255,7 +255,7 @@ LIMIT $1 OFFSET $2`, limit, offset)
 
 func (s *Store) ListInviteCodes(ctx context.Context, limit, offset int) ([]models.InviteCode, int64, error) {
 	rows, err := s.pool.Query(ctx, `
-SELECT id, code, used, used_email, used_at, user_id, created_at
+SELECT id, code, used, used_email, used_at, user_id, created_at, team_account_id
 FROM invite_codes
 ORDER BY created_at DESC
 LIMIT $1 OFFSET $2`, limit, offset)
@@ -267,10 +267,14 @@ LIMIT $1 OFFSET $2`, limit, offset)
 	for rows.Next() {
 		var c models.InviteCode
 		var userID sql.NullInt64
-		if err := rows.Scan(&c.ID, &c.Code, &c.Used, &c.UsedEmail, &c.UsedAt, &userID, &c.CreatedAt); err != nil {
+		var teamAccountID sql.NullInt64
+		if err := rows.Scan(&c.ID, &c.Code, &c.Used, &c.UsedEmail, &c.UsedAt, &userID, &c.CreatedAt, &teamAccountID); err != nil {
 			return nil, 0, err
 		}
 		c.UserID = nullableInt64(userID)
+		if teamAccountID.Valid {
+			c.TeamAccountID = &teamAccountID.Int64
+		}
 		codes = append(codes, c)
 	}
 	var total int64
@@ -280,7 +284,7 @@ LIMIT $1 OFFSET $2`, limit, offset)
 	return codes, total, rows.Err()
 }
 
-func (s *Store) CreateInviteCodes(ctx context.Context, count int) ([]models.InviteCode, error) {
+func (s *Store) CreateInviteCodes(ctx context.Context, count int, teamAccountID *int64) ([]models.InviteCode, error) {
 	if count <= 0 {
 		count = 1
 	}
@@ -292,12 +296,13 @@ func (s *Store) CreateInviteCodes(ctx context.Context, count int) ([]models.Invi
 				return nil, err
 			}
 			row := s.pool.QueryRow(ctx, `
-INSERT INTO invite_codes (code, used, used_email, user_id)
-VALUES ($1, false, NULL, NULL)
-RETURNING id, code, used, used_email, used_at, user_id, created_at`, code)
+INSERT INTO invite_codes (code, used, used_email, user_id, team_account_id)
+VALUES ($1, false, NULL, NULL, $2)
+RETURNING id, code, used, used_email, used_at, user_id, created_at, team_account_id`, code, teamAccountID)
 			var invite models.InviteCode
 			var userID sql.NullInt64
-			if err := row.Scan(&invite.ID, &invite.Code, &invite.Used, &invite.UsedEmail, &invite.UsedAt, &userID, &invite.CreatedAt); err != nil {
+			var teamID sql.NullInt64
+			if err := row.Scan(&invite.ID, &invite.Code, &invite.Used, &invite.UsedEmail, &invite.UsedAt, &userID, &invite.CreatedAt, &teamID); err != nil {
 				var pgErr *pgconn.PgError
 				if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 					continue
@@ -305,6 +310,9 @@ RETURNING id, code, used, used_email, used_at, user_id, created_at`, code)
 				return nil, err
 			}
 			invite.UserID = nullableInt64(userID)
+			if teamID.Valid {
+				invite.TeamAccountID = &teamID.Int64
+			}
 			invites = append(invites, invite)
 			break
 		}
@@ -315,6 +323,27 @@ RETURNING id, code, used, used_email, used_at, user_id, created_at`, code)
 func (s *Store) DeleteInviteCode(ctx context.Context, id int64) error {
 	_, err := s.pool.Exec(ctx, `DELETE FROM invite_codes WHERE id = $1`, id)
 	return err
+}
+
+func (s *Store) GetInviteCodeByCode(ctx context.Context, code string) (*models.InviteCode, error) {
+	row := s.pool.QueryRow(ctx, `
+SELECT id, code, used, used_email, used_at, user_id, created_at, team_account_id
+FROM invite_codes
+WHERE code = $1`, strings.TrimSpace(code))
+	var invite models.InviteCode
+	var userID sql.NullInt64
+	var teamID sql.NullInt64
+	if err := row.Scan(&invite.ID, &invite.Code, &invite.Used, &invite.UsedEmail, &invite.UsedAt, &userID, &invite.CreatedAt, &teamID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrInviteNotFound
+		}
+		return nil, err
+	}
+	invite.UserID = nullableInt64(userID)
+	if teamID.Valid {
+		invite.TeamAccountID = &teamID.Int64
+	}
+	return &invite, nil
 }
 
 func (s *Store) UpdateInviteCode(ctx context.Context, id int64, used bool, email *string) error {
@@ -591,16 +620,20 @@ func (s *Store) AwardWin(ctx context.Context, userID int64, code string) (*model
 		return nil, 0, err
 	}
 
-	row = tx.QueryRow(ctx, `
-INSERT INTO invite_codes (code, used, used_email, user_id)
-VALUES ($1, false, NULL, $2)
-RETURNING id, code, used, used_email, used_at, user_id, created_at`, code, userID)
+row = tx.QueryRow(ctx, `
+INSERT INTO invite_codes (code, used, used_email, user_id, team_account_id)
+VALUES ($1, false, NULL, $2, NULL)
+RETURNING id, code, used, used_email, used_at, user_id, created_at, team_account_id`, code, userID)
 	var invite models.InviteCode
 	var insertedUserID sql.NullInt64
-	if err := row.Scan(&invite.ID, &invite.Code, &invite.Used, &invite.UsedEmail, &invite.UsedAt, &insertedUserID, &invite.CreatedAt); err != nil {
+	var teamID sql.NullInt64
+	if err := row.Scan(&invite.ID, &invite.Code, &invite.Used, &invite.UsedEmail, &invite.UsedAt, &insertedUserID, &invite.CreatedAt, &teamID); err != nil {
 		return nil, 0, err
 	}
 	invite.UserID = nullableInt64(insertedUserID)
+	if teamID.Valid {
+		invite.TeamAccountID = &teamID.Int64
+	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, 0, err
@@ -609,21 +642,25 @@ RETURNING id, code, used, used_email, used_at, user_id, created_at`, code, userI
 }
 
 func (s *Store) LatestInviteForUser(ctx context.Context, userID int64) (*models.InviteCode, error) {
-	row := s.pool.QueryRow(ctx, `
-SELECT id, code, used, used_email, used_at, user_id, created_at
+row := s.pool.QueryRow(ctx, `
+SELECT id, code, used, used_email, used_at, user_id, created_at, team_account_id
 FROM invite_codes
 WHERE user_id = $1
 ORDER BY created_at DESC
 LIMIT 1`, userID)
 	var invite models.InviteCode
 	var storedUserID sql.NullInt64
-	if err := row.Scan(&invite.ID, &invite.Code, &invite.Used, &invite.UsedEmail, &invite.UsedAt, &storedUserID, &invite.CreatedAt); err != nil {
+	var teamID sql.NullInt64
+	if err := row.Scan(&invite.ID, &invite.Code, &invite.Used, &invite.UsedEmail, &invite.UsedAt, &storedUserID, &invite.CreatedAt, &teamID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, nil
 		}
 		return nil, err
 	}
 	invite.UserID = nullableInt64(storedUserID)
+	if teamID.Valid {
+		invite.TeamAccountID = &teamID.Int64
+	}
 	return &invite, nil
 }
 

@@ -100,14 +100,19 @@ export const Api = {
       body: JSON.stringify({ spinId }),
     })
   },
-  submitInvite(email: string, code?: string) {
+  submitInvite(email: string, teamAccountId: number, code?: string, turnstileToken?: string) {
     return apiRequest<{ status: string }>('/api/invite', {
       method: 'POST',
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify({ email, code, teamAccountId, turnstileToken }),
     })
   },
   getInvite() {
     return apiRequest<{ invite: { code: string; used: boolean; usedEmail?: string } | null }>('/api/invite')
+  },
+  resolveInviteCode(code: string) {
+    return apiRequest<{ teamAccountId?: number | null; teamAccountName?: string }>(
+      `/api/invite/resolve?code=${encodeURIComponent(code)}`,
+    )
   },
   adminLogin(payload: { password: string; code: string }) {
     return apiRequest<{ token: string }>('/api/admin/login', {
@@ -166,13 +171,13 @@ export const Api = {
   adminFetchInviteCodes(limit = 50, offset = 0) {
     return apiRequest<{ codes: Array<any>; total: number }>(`/api/admin/invite-codes?limit=${limit}&offset=${offset}`, { method: 'GET' }, 'admin')
   },
-  adminCreateInviteCodes(count: number) {
+  adminCreateInviteCodes(count: number, teamAccountId?: number) {
     return apiRequest<{ codes: Array<any> }>('/api/admin/invite-codes', {
       method: 'POST',
-      body: JSON.stringify({ count }),
+      body: JSON.stringify({ count, teamAccountId }),
     }, 'admin')
   },
-  adminUpdateInviteCode(id: number, payload: { used: boolean; usedEmail?: string }) {
+  adminUpdateInviteCode(id: number, payload: { used: boolean; usedEmail?: string; teamAccountId?: number }) {
     return apiRequest<{ status: string }>(`/api/admin/invite-codes/${id}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -208,6 +213,9 @@ export const Api = {
   },
   adminDeleteTeamAccount(id: number) {
     return apiRequest<{ status: string }>(`/api/admin/team-accounts/${id}`, { method: 'DELETE' }, 'admin')
+  },
+  getTurnstileSiteKey() {
+    return apiRequest<{ siteKey: string }>('/api/turnstile/site-key', { method: 'GET' }, null)
   },
 }
 

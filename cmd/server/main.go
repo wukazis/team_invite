@@ -21,6 +21,7 @@ import (
 	adminsvc "team-invite/internal/services/admin"
 	"team-invite/internal/services/draw"
 	invitesvc "team-invite/internal/services/invite"
+	"team-invite/internal/services/teamstatus"
 )
 
 func main() {
@@ -47,11 +48,9 @@ func main() {
 	prizeCache := cache.NewPrizeConfigCache(cfg.PrizeConfigTTL, store.LoadPrizeConfig)
 	envSvc := adminsvc.NewEnvService(cfg.EnvFilePath)
 	drawSvc := draw.NewService(store, prizeCache, logger)
-	inviter := invitesvc.New(invitesvc.Config{
-		Accounts: cfg.InviteAccounts,
-		Strategy: cfg.InviteStrategy,
-		ActiveID: cfg.InviteActiveID,
-	})
+	inviter := invitesvc.New("")
+	teamStatusSvc := teamstatus.New(store, logger, 30*time.Second)
+	teamStatusSvc.Start(ctx)
 
 	quotaRunner := scheduler.NewQuotaRunner(store, cfg.QuotaScheduleTick, logger)
 	quotaRunner.Start(ctx)
@@ -61,7 +60,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	handler := handlers.NewHandler(cfg, store, drawSvc, envSvc, jwtMgr, oauthClient, prizeCache, inviter, logger)
+	handler := handlers.NewHandler(cfg, store, drawSvc, envSvc, jwtMgr, oauthClient, prizeCache, inviter, teamStatusSvc, logger)
 	handlers.RegisterRoutes(r, handler, jwtMgr, cfg.AdminAllowedIPs)
 
 	srv := &http.Server{
